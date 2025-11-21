@@ -15,7 +15,7 @@ CHAT_ID = int(os.getenv("CHAT_ID", "0"))
 ORBITA_LOGIN = os.getenv("ORBITA_LOGIN")
 ORBITA_PASSWORD = os.getenv("ORBITA_PASSWORD")
 
-CHECK_INTERVAL = 3600
+CHECK_INTERVAL = 10
 
 
 def create_driver() -> webdriver.Chrome:
