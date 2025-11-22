@@ -9,264 +9,141 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+CHAT_ID_ENV = os.getenv("CHAT_ID")
+ORBITA_LOGIN = os.getenv("ORBITA_LOGIN")
+ORBITA_PASSWORD = os.getenv("ORBITA_PASSWORD")
 
-# ================== НАСТРОЙКИ И ПЕРЕМЕННЫЕ ОКРУЖЕНИЯ ==================
-
-TELEGRAM_TOKEN = os.getenv("8358247520:AAFndGUOPZy6wQypQfLBY0mkvBfFYOk3IqA")
-CHAT_ID_ENV = os.getenv("-5070917129")
-ORBITA_LOGIN = os.getenv("Gospodinov_TOP")
-ORBITA_PASSWORD = os.getenv("CCDabhG9BF")
-
-# раз в час
-CHECK_INTERVAL = 10
-
+CHECK_INTERVAL = 10  # 1 hour
 
 def validate_env():
-    """Проверяем, что все нужные переменные окружения заданы."""
     if not TELEGRAM_TOKEN:
-        raise RuntimeError("TELEGRAM_TOKEN не задан в переменных окружения")
-
+        raise RuntimeError("TELEGRAM_TOKEN not set")
     if not CHAT_ID_ENV:
-        raise RuntimeError("CHAT_ID не задан в переменных окружения")
-
+        raise RuntimeError("CHAT_ID not set")
     try:
         chat_id_int = int(CHAT_ID_ENV)
     except ValueError:
-        raise RuntimeError(f"CHAT_ID должен быть числом, сейчас: {CHAT_ID_ENV!r}")
-
+        raise RuntimeError("CHAT_ID must be int")
     if not ORBITA_LOGIN or not ORBITA_PASSWORD:
-        raise RuntimeError("ORBITA_LOGIN или ORBITA_PASSWORD не заданы")
-
+        raise RuntimeError("ORBITA_LOGIN or ORBITA_PASSWORD missing")
     return chat_id_int
-
 
 CHAT_ID = validate_env()
 
-
-# ================== SELENIUM / CHROMIUM ==================
-
 def create_driver() -> webdriver.Chrome:
-    """Создаём headless Chromium/Chrome для Railway."""
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1600,900")
+    return webdriver.Chrome(options=options)
 
-    # На Railway CHROME_BIN устанавливается в Dockerfile
-    chrome_bin = os.getenv("CHROME_BIN")
-    if chrome_bin:
-        options.binary_location = chrome_bin
-
-    driver = webdriver.Chrome(options=options)
-    return driver
-
-
-def find_today_column(table) -> int | None:
-    """
-    Ищем индекс колонки для сегодняшней даты.
-    В шапке таблицы даты лежат в <th>, число в aria-label:
-    aria-label="21: активировать для сортировки столбца..."
-    """
+def find_today_column(table):
     today_str = f"{datetime.now().day:02d}"
-
     rows = table.find_elements(By.TAG_NAME, "tr")
-
     for row in rows:
         ths = row.find_elements(By.TAG_NAME, "th")
-        if not ths:
-            continue
-
         for idx, th in enumerate(ths):
             aria = th.get_attribute("aria-label") or ""
             txt = th.text.strip()
-
-            # aria-label имеет вид "21: ..."
-            if aria.startswith(today_str + ":"):
+            if aria.startswith(today_str + ":") or txt == today_str:
                 return idx
-
-            # запасной вариант — дата прямо в тексте
-            if txt == today_str:
-                return idx
-
     return None
 
-
-def parse_balance_table(driver) -> str:
-    """
-    Парсим таблицу Баланс:
-    - находим колонку с сегодняшней датой
-    - собираем сотрудников и их значения
-    - сортируем по убыванию
-    - возвращаем готовый текст
-    """
+def parse_balance_table(driver):
     now = datetime.now()
     today_str = f"{now.day:02d}"
     month_str = f"{now.month:02d}"
 
-    # ждём появления таблицы
     WebDriverWait(driver, 30).until(
         EC.presence_of_element_located((By.TAG_NAME, "table"))
     )
     table = driver.find_element(By.TAG_NAME, "table")
-
-    # 1. колонка сегодняшнего дня
     today_col = find_today_column(table)
     if today_col is None:
-        return f"❌ Не найден столбец с датой {today_str}.{month_str}"
+        return f"❌ Column for {today_str}.{month_str} not found"
 
     rows = table.find_elements(By.TAG_NAME, "tr")
-
-    # 2. собираем пары (имя, число)
-    pairs: list[tuple[str, float]] = []
+    pairs = []
 
     for row in rows:
-        # имена в <th>
         ths = row.find_elements(By.TAG_NAME, "th")
         if not ths:
             continue
-
         name = ths[0].text.strip()
-        if not name:
-            continue
-
         lname = name.lower()
-
-        # пропускаем строки 'всего', 'итого', админов и т.п.
-        if "всего" in lname or "итого" in lname or "администратор" in lname:
+        if (
+            not name
+            or "всего" in lname
+            or "итого" in lname
+            or "администратор" in lname
+            or name[0].isdigit()
+            or len(name.split()) < 2
+        ):
             continue
-
-        # иногда в шапке могут быть числа
-        if name[0].isdigit():
-            continue
-
-        # простая проверка, что похоже на ФИО
-        if len(name.split()) < 2:
-            continue
-
-        # значения — в <td>
         tds = row.find_elements(By.TAG_NAME, "td")
         if len(tds) <= today_col:
             continue
-
-        value_text = tds[today_col].text.strip() or "0"
-
-        # пробуем привести к числу
+        value = tds[today_col].text.strip() or "0"
         try:
-            num_value = float(value_text.replace(",", "."))
-        except ValueError:
-            # если вдруг не число — считаем нулём
+            num_value = float(value.replace(",", "."))
+        except:
             num_value = 0.0
-
         pairs.append((name, num_value))
 
     if not pairs:
-        return f"ℹ Нет данных по сотрудникам за {today_str}.{month_str}"
+        return f"No data for {today_str}.{month_str}"
 
-    # сортируем по убыванию
     pairs.sort(key=lambda x: x[1], reverse=True)
+    lines = [f"📊 Баланс за {today_str}.{month_str}
+"]
+    lines += [f"{n}: {v}" for n, v in pairs]
+    return "
+".join(lines)
 
-    # формируем вывод
-    lines = [f"📊 Баланс за {today_str}.{month_str}\n"]
-    for name, val in pairs:
-        # можно форматировать до 2 знаков после запятой
-        lines.append(f"{name}: {val}")
-
-    return "\n".join(lines)
-
-
-def login_and_get_balance_text() -> str:
-    """
-    Логинимся на orbita.life, открываем главную страницу и
-    возвращаем текст отчёта по балансу.
-    """
+def login_and_get_balance_text():
     driver = create_driver()
     wait = WebDriverWait(driver, 30)
-
     try:
-        # страница логина
         driver.get("https://orbita.life/login")
-
-        # поля логина и пароля
-        email_input = wait.until(
-            EC.presence_of_element_located(
-                (
-                    By.CSS_SELECTOR,
-                    "input[type='email'], input[name='email'], input[name='login']",
-                )
-            )
-        )
-        password_input = driver.find_element(
-            By.CSS_SELECTOR, "input[type='password'], input[name='password']"
-        )
-
-        email_input.clear()
-        email_input.send_keys(ORBITA_LOGIN)
-
-        password_input.clear()
-        password_input.send_keys(ORBITA_PASSWORD)
-
-        # кнопка входа
-        login_button = driver.find_element(
-            By.CSS_SELECTOR, "button[type='submit'], button.btn-primary"
-        )
-        login_button.click()
-
-        # ждём, пока уйдём с /login
+        email_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email'], input[name='email'], input[name='login']")))
+        pwd_input = driver.find_element(By.CSS_SELECTOR, "input[type='password'], input[name='password']")
+        email_input.clear(); email_input.send_keys(ORBITA_LOGIN)
+        pwd_input.clear(); pwd_input.send_keys(ORBITA_PASSWORD)
+        btn = driver.find_element(By.CSS_SELECTOR, "button[type='submit'], button.btn-primary")
+        btn.click()
         wait.until(lambda d: "login" not in d.current_url.lower())
-
-        # после логина сразу открываем главную (если не попали туда автоматически)
         driver.get("https://orbita.life")
-
-        # парсим таблицу
         return parse_balance_table(driver)
-
     finally:
         driver.quit()
 
-
-# ================== TELEGRAM / AIROGRAM ==================
-
 async def send_long(bot: Bot, chat_id: int, text: str):
-    """Отправляет длинные сообщения частями, чтобы не упираться в лимит Telegram."""
-    max_len = 4000
-    if len(text) <= max_len:
+    if len(text) <= 4000:
         await bot.send_message(chat_id, text)
         return
-
-    for i in range(0, len(text), max_len):
-        await bot.send_message(chat_id, text[i : i + max_len])
-
+    for i in range(0, len(text), 4000):
+        await bot.send_message(chat_id, text[i:i+4000])
 
 async def main():
     bot = Bot(token=TELEGRAM_TOKEN)
-
     try:
         while True:
             try:
-                balance_text = login_and_get_balance_text()
+                t = login_and_get_balance_text()
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                full_text = f"⏰ Обновление ORBITA ({now_str})\n\n{balance_text}"
+                msg = f"⏰ Update ({now_str})
 
-                await send_long(bot, CHAT_ID, full_text)
-
+{t}"
+                await send_long(bot, CHAT_ID, msg)
             except Exception as e:
-                # Ловим любые ошибки, чтобы бот не падал
-                err_text = f"❌ Ошибка при парсинге ORBITA:\n{e}"
-                try:
-                    await bot.send_message(CHAT_ID, err_text)
-                except Exception:
-                    # Если даже сюда не можем отправить — просто печатаем в лог
-                    print(err_text)
-
-            # ждём час до следующего обновления
+                await bot.send_message(CHAT_ID, f"❌ Error:
+{e}")
             await asyncio.sleep(CHECK_INTERVAL)
-
     finally:
-        # корректно закрываем сессию бота
         await bot.session.close()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
