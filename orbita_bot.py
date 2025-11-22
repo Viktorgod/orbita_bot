@@ -14,7 +14,7 @@ CHAT_ID_ENV = os.getenv("CHAT_ID")
 ORBITA_LOGIN = os.getenv("ORBITA_LOGIN")
 ORBITA_PASSWORD = os.getenv("ORBITA_PASSWORD")
 
-CHECK_INTERVAL = 10  # 1 hour
+CHECK_INTERVAL = 3600  # 1 hour
 
 def validate_env():
     if not TELEGRAM_TOKEN:
@@ -97,11 +97,13 @@ def parse_balance_table(driver):
         return f"No data for {today_str}.{month_str}"
 
     pairs.sort(key=lambda x: x[1], reverse=True)
+
     lines = [f"📊 Баланс за {today_str}.{month_str}
 "]
-    lines += [f"{n}: {v}" for n, v in pairs]
-    return "
-".join(lines)
+    for name, val in pairs:
+        lines.append(f"{name}: {val}")
+
+    return "\n".join(lines)
 
 def login_and_get_balance_text():
     driver = create_driver()
@@ -134,16 +136,14 @@ async def main():
             try:
                 t = login_and_get_balance_text()
                 now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                msg = f"⏰ Update ({now_str})
-
-{t}"
+                msg = f"⏰ Update ({now_str})\n\n{t}"
                 await send_long(bot, CHAT_ID, msg)
             except Exception as e:
-                await bot.send_message(CHAT_ID, f"❌ Error:
-{e}")
+                await bot.send_message(CHAT_ID, f"❌ Error:\n{e}")
             await asyncio.sleep(CHECK_INTERVAL)
     finally:
         await bot.session.close()
 
 if __name__ == "__main__":
     asyncio.run(main())
+
