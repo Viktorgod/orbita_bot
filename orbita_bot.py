@@ -14,7 +14,7 @@ CHAT_ID_ENV = os.getenv("CHAT_ID")
 ORBITA_LOGIN = os.getenv("ORBITA_LOGIN")
 ORBITA_PASSWORD = os.getenv("ORBITA_PASSWORD")
 
-CHECK_INTERVAL = 3600  # 1 hour
+CHECK_INTERVAL = 10  # 1 hour
 
 def validate_env():
     if not TELEGRAM_TOKEN:
