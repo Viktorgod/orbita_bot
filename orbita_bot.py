@@ -98,8 +98,7 @@ def parse_balance_table(driver):
 
     pairs.sort(key=lambda x: x[1], reverse=True)
 
-    lines = [f"📊 Баланс за {today_str}.{month_str}
-"]
+    lines = [f"📊 Баланс за {today_str}.{month_str}"]
     for name, val in pairs:
         lines.append(f"{name}: {val}")
 
