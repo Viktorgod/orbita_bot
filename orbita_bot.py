@@ -20,7 +20,7 @@ ORBITA_LOGIN = os.getenv("ORBITA_LOGIN")
 ORBITA_PASSWORD = os.getenv("ORBITA_PASSWORD")
 PLAN_DAY = float(os.getenv("PLAN_DAY", "2000"))  # общий план на день
 
-CHECK_INTERVAL = 3600  # 1 час
+CHECK_INTERVAL = 10  # 1 час
 
 HISTORY_FILE = "last.json"             # для почасового прироста
 PLANS_FILE = "plans.json"              # индивидуальные планы
